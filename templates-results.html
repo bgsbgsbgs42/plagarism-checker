@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plagiarism Analysis Results</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="container py-5">
+        <header class="mb-5">
+            <h1 class="display-4 text-center">Analysis Results</h1>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>New Analysis
+                </a>
+                <a href="{{ url_for('download_report') }}" class="btn btn-outline-primary">
+                    <i class="fas fa-download me-2"></i>Download Report
+                </a>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% if comparisons %}
+            <section class="mb-5">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-light">
+                        <h2 class="h4 mb-0">Document Similarity Analysis</h2>
+                    </div>
+                    <div class="card-body">
+                        {% if visualization_path %}
+                            <div class="text-center mb-4">
+                                <img src="{{ url_for('static', filename='results/' + visualization_path) }}" 
+                                     alt="Similarity Heatmap" class="img-fluid border rounded">
+                                <p class="text-muted mt-2">Document Similarity Heatmap</p>
+                            </div>
+                        {% endif %}
+
+                        <div class="list-group">
+                            {% for comparison in comparisons %}
+                                {% set similarity = comparison['Similarity (%)'] %}
+                                {% set is_flagged = similarity >= threshold %}
+                                
+                                <div class="list-group-item list-group-item-action flex-column align-items-start">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h5 class="mb-1">
+                                            {{ comparison['Document 1'] }} <i class="fas fa-exchange-alt text-muted mx-2"></i> {{ comparison['Document 2'] }}
+                                        </h5>
+                                        <span class="badge {{ 'bg-danger' if is_flagged else 'bg-success' }} fs-6">
+                                            {{ similarity }}% Similar
+                                        </span>
+                                    </div>
+                                    
+                                    {% if is_flagged %}
+                                        <div class="alert alert-warning mt-3">
+                                            <i class="fas fa-exclamation-triangle me-2"></i>
+                                            <strong>Potential plagiarism detected</strong> (above {{ threshold }}% threshold)
+                                        </div>
+                                        
+                                        {% if 'Common Phrases' in comparison and comparison['Common Phrases'] %}
+                                            <div class="mt-3">
+                                                <h6>Top matching phrases:</h6>
+                                                <div class="accordion" id="phrases-{{ loop.index }}">
+                                                    {% for phrase in comparison['Common Phrases'] %}
+                                                        <div class="accordion-item">
+                                                            <h2 class="accordion-header" id="heading-{{ loop.index }}-{{ loop.parent.loop.index }}">
+                                                                <button class="accordion-button collapsed" type="button" 
+                                                                        data-bs-toggle="collapse" 
+                                                                        data-bs-target="#collapse-{{ loop.index }}-{{ loop.parent.loop.index }}" 
+                                                                        aria-expanded="false" 
+                                                                        aria-controls="collapse-{{ loop.index }}-{{ loop.parent.loop.index }}">
+                                                                    "{{ phrase.phrase }}" 
+                                                                    <span class="badge bg-secondary ms-2">
+                                                                        {{ phrase.length }} words, score: {{ phrase.score|round(2) }}
+                                                                    </span>
+                                                                </button>
+                                                            </h2>
+                                                            <div id="collapse-{{ loop.index }}-{{ loop.parent.loop.index }}" 
+                                                                 class="accordion-collapse collapse" 
+                                                                 aria-labelledby="heading-{{ loop.index }}-{{ loop.parent.loop.index }}" 
+                                                                 data-bs-parent="#phrases-{{ loop.parent.loop.index }}">
+                                                                <div class="accordion-body">
+                                                                    <div class="mb-2">
+                                                                        <strong>{{ comparison['Document 1'] }}:</strong>
+                                                                        <p class="mb-0">{{ phrase.context_doc1|replace(phrase.phrase, '<mark>' + phrase.phrase + '</mark>')|safe }}</p>
+                                                                    </div>
+                                                                    <div>
+                                                                        <strong>{{ comparison['Document 2'] }}:</strong>
+                                                                        <p class="mb-0">{{ phrase.context_doc2|replace(phrase.phrase, '<mark>' + phrase.phrase + '</mark>')|safe }}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    {% endfor %}
+                                                </div>
+                                            </div>
+                                        {% else %}
+                                            <p class="text-muted mt-3">No significant matching phrases found despite high similarity. This may indicate structural similarity rather than verbatim copying.</p>
+                                        {% endif %}
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </section>
+        {% endif %}
+
+        {% if online_results %}
+            <section class="mb-5">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-light">
+                        <h2 class="h4 mb-0">Online Source Analysis</h2>
+                    </div>
+                    <div class="card-body">
+                        <ul class="nav nav-tabs" id="onlineSourcesTab" role="tablist">
+                            {% for filename, results in online_results.items() %}
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link {{ 'active' if loop.first else '' }}" 
+                                            id="tab-{{ loop.index }}" 
+                                            data-bs-toggle="tab" 
+                                            data-bs-target="#content-{{ loop.index }}" 
+                                            type="button" 
+                                            role="tab" 
+                                            aria-controls="content-{{ loop.index }}" 
+                                            aria-selected="{{ 'true' if loop.first else 'false' }}">
+                                        {{ filename }}
+                                    </button>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                        
+                        <div class="tab-content p-3 border border-top-0 rounded-bottom" id="onlineSourcesTabContent">
+                            {% for filename, results in online_results.items() %}
+                                <div class="tab-pane fade {{ 'show active' if loop.first else '' }}" 
+                                     id="content-{{ loop.index }}" 
+                                     role="tabpanel" 
+                                     aria-labelledby="tab-{{ loop.index }}">
+                                    
+                                    <div class="mb-4">
+                                        <h5>Web Search Results</h5>
+                                        {% if results.google_matches %}
+                                            <div class="list-group">
+                                                {% for match in results.google_matches %}
+                                                    <div class="list-group-item">
+                                                        <div class="d-flex w-100 justify-content-between">
+                                                            <h6 class="mb-1">{{ match.title }}</h6>
+                                                            <span class="badge bg-info">{{ match.repository }}</span>
+                                                        </div>
+                                                        <p class="mb-1">
+                                                            <a href="{{ match.url }}" target="_blank" rel="noopener noreferrer">
+                                                                {{ match.url }}
+                                                                <i class="fas fa-external-link-alt ms-1 small"></i>
+                                                            </a>
+                                                        </p>
+                                                        <p class="mb-1"><strong>Matched phrase:</strong> "{{ match.matched_phrase }}"</p>
+                                                        <p class="mb-0 text-muted">{{ match.snippet }}</p>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            <p class="text-muted">No significant matches found in scholarly repositories.</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </section>
+        {% endif %}
+
+        {% if not comparisons and not online_results %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                No analysis results available. Please upload documents to analyze.
+            </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>>
+                                                        </div>
+                                                        <p class="mb-1">
+                                                            <a href="{{ match.url }}" target="_blank" rel="noopener noreferrer">
+                                                                {{ match.url }}
+                                                                <i class="fas fa-external-link-alt ms-1 small"></i>
+                                                            </a>
+                                                        </p>
+                                                        <p class="mb-1"><strong>Matched phrase:</strong> "{{ match.matched_phrase }}"</p>
+                                                        <p class="mb-0 text-muted">{{ match.snippet }}</p>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            <p class="text-muted">No significant matches found on the web.</p>
+                                        {% endif %}
+                                    </div>
+                                    
+                                    <div>
+                                        <h5>Scholarly Repository Results</h5>
+                                        {% if results.scholarly_matches %}
+                                            <div class="list-group">
+                                                {% for match in results.scholarly_matches %}
+                                                    <div class="list-group-item">
+                                                        <div class="d-flex w-100 justify-content-between">
+                                                            <h6 class="mb-1">{{ match.title }}</h6
